@@ -1,0 +1,154 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <LiquidCrystal.h>
+
+// ================= Configuración de pines de hardware =================
+// 1. Conexión de Pines LCD (Sin usar GPIO 6-11)
+// Conexión Detallada del ESP32 al LCD：
+const int rs = 19, en = 23, d4 = 18, d5 = 17, d6 = 16, d7 = 15;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+// 2. LM35 Pines del Sensor de Temperatura
+// LM35 VCC -> 3.3V (或 5V)
+// LM35 GND -> GND
+// LM35 OUT -> GPIO 34 (Pin de ADC，Conversor Analógico-Digital)
+const int lm35Pin = 34; 
+
+const char* ssid = "xm";
+const char* password = "cyj041108";
+
+const char* mqtt_server = "test.mosquitto.org";
+const int mqtt_port = 1883;
+// Tema para el Envío de Datos
+const char* mqtt_topic_pub = "devices/NAPIoT-P2-Temp"; 
+// Tema para la Recepción de Comandos (Control de LED)
+const char* mqtt_topic_sub = "devices/NAPIoT-P2-Rec";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// Variables del Temporizador (Para Envío con Retardo No Bloqueante)
+unsigned long lastMsg = 0;
+const long interval = 2000; // Enviar datos cada 2 segundos.
+
+void setup_wifi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Conectando a ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi conectada!");
+  Serial.println("IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  // Aquí se mantiene su lógica original de recepción. Si se requiere control inverso, puede escribirlo aquí
+  Serial.print("Mensaje Recibido [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // El ID de cliente (Client ID) debe ser único. Se recomienda añadir un número aleatorio
+    String clientId = "ESP32Client-";
+    clientId += String(random(0xffff), HEX);
+    
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connected");
+      client.subscribe(mqtt_topic_sub); // Volver a suscribirse al tema de recepción
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200); // ESP32 通常使用 115200
+  
+  // 初始化 LCD
+  // 如果你确实使用的是 0802 屏幕，请改为 lcd.begin(8, 2);
+  // 如果是图片中的 1602 屏幕，请保持 16, 2
+  lcd.begin(16, 2); 
+  lcd.setCursor(0, 0);
+  lcd.print("Init System...");
+
+  // 设置 ADC 分辨率 (ESP32 默认为 12位，为了明确写出来)
+  analogReadResolution(12); 
+
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
+  
+  lcd.clear();
+  lcd.print("WiFi OK");
+  delay(1000);
+  lcd.clear();
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  // 使用 millis() 进行非阻塞定时发送，避免 delay() 影响 MQTT 连接稳定性
+  unsigned long now = millis();
+  if (now - lastMsg > interval) {
+    lastMsg = now;
+
+    // --- 1. 读取温度 ---
+    int adcVal = analogRead(lm35Pin);
+    
+    // --- 2. 计算温度 (针对 ESP32 的修正公式) ---
+    // ESP32 ADC 是 12位 (0-4095)
+    // 假设参考电压是 3.3V (3300mV)
+    // LM35 输出: 10mV = 1摄氏度
+    // 电压(mV) = (adcVal / 4095.0) * 3300
+    // 温度(C) = 电压 / 10
+    float voltage = (adcVal / 4095.0) * 3300.0;
+    float temperature = voltage / 10.0;
+
+    // *注意：ESP32 的 ADC 线性度不如 Arduino Uno 好，
+    // 如果发现温度偏差大，可能需要进行校准或使用 map 函数微调。
+    
+    // --- 3. 串口打印 ---
+    Serial.print("Temp: ");
+    Serial.print(temperature);
+    Serial.println(" C");
+
+    // --- 4. LCD 显示 ---
+    lcd.setCursor(0, 0); // 第一行
+    lcd.print("Temp: ");
+    lcd.print(temperature, 1); // 保留1位小数
+    lcd.print("C   ");       // 额外的空格用于清除旧字符
+
+    lcd.setCursor(0, 1); // 第二行
+    lcd.print("MQTT Uploading");
+
+    // --- 5. MQTT 上传 ---
+    // 将浮点数转换为字符数组
+    char tempString[8];
+    dtostrf(temperature, 1, 2, tempString); // 格式化: 最小宽度1, 小数位2
+    
+    client.publish(mqtt_topic_pub, tempString);
+    Serial.print("Published to ");
+    Serial.print(mqtt_topic_pub);
+    Serial.print(": ");
+    Serial.println(tempString);
+  }
+}
