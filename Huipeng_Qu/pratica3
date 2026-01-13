@@ -1,0 +1,113 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <LiquidCrystal.h>
+
+const char* ssid = "xm";
+const char* password = "cyj041108";
+
+// MQTT Configuration
+const char* mqttServer = "10.60.69.34"; 
+const int mqttPort = 1883;
+const char* mqttUser = "";      
+const char* mqttPassword = "";  
+const char* mqttTopic = "NAPIoT/Temperature";
+
+// LM35 Sensor Configuration
+const int sensorPin = 34; // ADC pin for ESP32 
+
+// LCD Configuration
+// Ensure these GPIO pins match your physical wiring on the ESP32
+// RS=19, EN=23, D4=18, D5=17, D6=16, D7=15 (Example mapping)
+const int rs = 19, en = 23, d4 = 18, d5 = 17, d6 = 16, d7 = 15;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+// Objects
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+
+void setup() {
+  Serial.begin(115200);
+
+  // --- LCD Init ---
+  lcd.begin(16, 2); // Assuming a standard 16x2 or 8x2 LCD
+  lcd.print("Init System...");
+
+  // --- WiFi Init ---
+  Serial.println();
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi OK");
+
+  // --- MQTT Init ---
+  client.setServer(mqttServer, mqttPort);
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("ESP32_Temp_Node", mqttUser, mqttPassword)) {
+      Serial.println("connected");
+      lcd.setCursor(0, 1);
+      lcd.print("MQTT OK");
+      delay(1000);
+      lcd.clear();
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 2 seconds");
+      delay(2000);
+    }
+  }
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  // --- 1. Read Temperature ---
+  int adcVal = analogRead(sensorPin);
+  
+  // Math for ESP32 (3.3V reference, 12-bit resolution 4095)
+  // Voltage = (adcVal / 4095.0) * 3300mV
+  // TempC = Voltage / 10mV
+  float millivolts = (adcVal / 4095.0) * 3300;
+  float tempC = millivolts / 10;
+
+  // --- 2. Display on LCD ---
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: ");
+  lcd.print(tempC);
+  lcd.print(" C");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Sending...");
+
+  // --- 3. Publish to MQTT ---
+  char tempString[8];
+  dtostrf(te4mpC, 1, 2, tempString); // Convert float to string
+  
+  client.publish(mqttTopic, tempString);
+  
+  // Debug to Serial
+  Serial.print("Published to ");
+  Serial.print(mqttTopic);
+  Serial.print(": ");
+  Serial.println(tempString);
+
+  delay(2000); // Wait 2 seconds before next reading
+  lcd.setCursor(0, 1);
+  lcd.print("          "); // Clear second line
+}
