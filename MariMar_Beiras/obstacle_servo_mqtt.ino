@@ -20,8 +20,8 @@ const int POS_CERRADO = 0;  // Válvula cerrada
 const int POS_ABIERTO = 90; // Válvula abierta
 
 // MQTT Topics
-const char* topic_data = "devices/NAPIoT-P2-USC2/agua/estado";
-const char* topic_cmd  = "devices/NAPIoT-P2-USC2/agua/cmd";
+const char* topic_data = "devices/NAPIoT-P3-USC2/agua/estado";
+const char* topic_cmd  = "devices/NAPIoT-P3-USC2/agua/cmd";
 
 // --- Objetos ---
 WiFiClient espClient;
