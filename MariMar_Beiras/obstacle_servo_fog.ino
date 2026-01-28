@@ -8,7 +8,7 @@ const char* password = "pdecpk2kk6htan";
 
 //--- Configuración de IPs (Punto 3 de la Práctica) ---
 // Se asume IP fija para la Raspberry Pi como dispositivo Fog 
-const char* ip_fog      = "172.29.111.151"; 192.168.1.130 //IP de Hotspot Movil
+const char* ip_fog      = "172.29.111.151";  //IP de Hotspot Movil
 const char* ip_cloudlet = "192.168.1.130"; // IP del wifi casa
 const int mqtt_port     = 1883;
 
